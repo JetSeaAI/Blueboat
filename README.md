@@ -99,17 +99,31 @@ OUTPUT_MODE=rc_override ./run.sh
 
 ### rc_override 在 MANUAL 沒反應？
 
-先做這個測試，它能決定性地分辨是「飛控沒收下」還是「收下了但對應錯」：
+先把「飛控不吃 override」和「我的節點有問題」分開。
+`rctest` 不經過 bb_joy，直接對 topic 送一個固定值：
 
 ```bash
-# Terminal 1
-OUTPUT_MODE=rc_override ./run.sh
+# Terminal 1 —— 容器要在跑（launch 起不起來都行）
+./run.sh
 
-# Terminal 2 —— 我們送出去的
-./run.sh rcout
+# Terminal 2 —— 直接送 ch1 = 1600
+./run.sh rctest
 
-# Terminal 3 —— 飛控實際看到的
+# Terminal 3 —— 看飛控收到什麼
 ./run.sh rcin
+```
+
+> ⚠️ 會持續送指令，確認螺旋槳淨空或船已架起。`CH=3 PWM=1600 ./run.sh rctest`
+> 可以改通道和數值。
+
+`rcin` 的 `channels[0]`（ch1）有沒有變成 1600？
+
+如果要連手把一起測：
+
+```bash
+OUTPUT_MODE=rc_override ./run.sh    # Terminal 1
+./run.sh rcout                       # Terminal 2，我們送出去的
+./run.sh rcin                        # Terminal 3，飛控看到的
 ```
 
 按住 RB 踩扳機，看 `rcout` 的 `channels[2]`（ch3 油門）有沒有離開 1500。

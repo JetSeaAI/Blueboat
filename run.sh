@@ -9,6 +9,9 @@
 #   ./run.sh rcin         看飛控實際收到的 RC（判斷 override 有沒有被接受）
 #   ./run.sh fc           看飛控的 STATUSTEXT（切模式被拒的理由在這）
 #   ./run.sh gps          看 GPS fix / 衛星數 / EKF（GUIDED 進不去先看這）
+#   ./run.sh rctest       不經過 bb_joy，直接送一個固定 RC override 測飛控
+#                         （CH=1 PWM=1600 可覆蓋）
+#   ./run.sh sysid        查 SYSID_MYGCS 和 mavros 的 system_id
 #   ./run.sh logs         看 log
 #   ./run.sh down         全部停掉
 #
@@ -29,6 +32,14 @@ export JOY_DEV="${JOY_DEV:-/dev/input/js0}"
 export OUTPUT_MODE="${OUTPUT_MODE:-twist}"
 
 info() { echo -e "\033[36m▸\033[0m $*"; }
+
+# 在跑著的容器裡執行一段 ROS2 指令
+in_container() {
+  docker inspect -f '{{.State.Running}}' "${BB}" 2>/dev/null | grep -q true \
+    || die "容器 ${BB} 沒在跑。先開另一個 terminal 執行 ./run.sh"
+  docker exec -it "${BB}" bash -ic \
+    "source /opt/ros/humble/setup.bash; source /ros2_ws/install/setup.bash 2>/dev/null; $1"
+}
 warn() { echo -e "\033[33m⚠\033[0m  $*" >&2; }
 die()  { echo -e "\033[31m✘\033[0m $*" >&2; exit 1; }
 
@@ -87,47 +98,64 @@ case "${1:-up}" in
     ;;
 
   joy)
-    docker exec -it "${BB}" bash -ic \
-      'source /opt/ros/humble/setup.bash && source /ros2_ws/install/setup.bash 2>/dev/null; ros2 topic echo /joy' \
-      || die "容器沒在跑？先開另一個 terminal 跑 ./run.sh"
+    in_container 'ros2 topic echo /joy'
     ;;
 
   vel)
-    docker exec -it "${BB}" bash -ic \
-      'source /opt/ros/humble/setup.bash && source /ros2_ws/install/setup.bash 2>/dev/null; ros2 topic echo /mavros/setpoint_velocity/cmd_vel_unstamped' \
-      || die "容器沒在跑？先開另一個 terminal 跑 ./run.sh"
+    in_container 'ros2 topic echo /mavros/setpoint_velocity/cmd_vel_unstamped'
     ;;
 
   rcin)
-    # 決定性測試：ArduPilot 有沒有真的收下 override
-    docker exec -it "${BB}" bash -ic \
-      'source /opt/ros/humble/setup.bash && source /ros2_ws/install/setup.bash 2>/dev/null; ros2 topic echo /mavros/rc/in' \
-      || die "容器沒在跑？先開另一個 terminal 跑 ./run.sh"
+    in_container 'ros2 topic echo /mavros/rc/in'
     ;;
 
   rcout)
-    docker exec -it "${BB}" bash -ic \
-      'source /opt/ros/humble/setup.bash && source /ros2_ws/install/setup.bash 2>/dev/null; ros2 topic echo /mavros/rc/override' \
-      || die "容器沒在跑？先開另一個 terminal 跑 ./run.sh"
+    in_container 'ros2 topic echo /mavros/rc/override'
     ;;
 
   fc)
-    # 飛控自己講的話：切模式被拒絕的理由、EKF/GPS 警告都在這
-    docker exec -it "${BB}" bash -ic \
-      'source /opt/ros/humble/setup.bash && source /ros2_ws/install/setup.bash 2>/dev/null; ros2 topic echo /mavros/statustext/recv' \
-      || die "容器沒在跑？先開另一個 terminal 跑 ./run.sh"
+    in_container 'ros2 topic echo /mavros/statustext/recv'
     ;;
 
   gps)
-    docker exec -it "${BB}" bash -ic \
-      'source /opt/ros/humble/setup.bash && source /ros2_ws/install/setup.bash 2>/dev/null;
-       echo "--- GPS fix（GUIDED 需要 status>=0 且 3D fix）---"
-       timeout 3 ros2 topic echo --once /mavros/global_position/raw/fix
-       echo "--- 衛星數 ---"
-       timeout 3 ros2 topic echo --once /mavros/global_position/raw/satellites
-       echo "--- EKF ---"
-       timeout 3 ros2 topic echo --once /mavros/estimator_status' \
-      || die "容器沒在跑？先開另一個 terminal 跑 ./run.sh"
+    in_container '
+      for t in /mavros/global_position/raw/fix \
+               /mavros/global_position/raw/satellites \
+               /mavros/estimator_status; do
+        echo "--- ${t} ---"
+        # 沒有訊息是常見的（例如 ArduPilot 不發 estimator_status），
+        # 那只是「這台沒這個資料」，不是錯誤
+        timeout 3 ros2 topic echo --once "${t}" || echo "  (3 秒內沒有訊息)"
+      done'
+    ;;
+
+  rctest)
+    # 不經過 bb_joy，直接對 /mavros/rc/override 發一個固定值。
+    # 用來分辨「飛控不吃 override」還是「我的節點有問題」。
+    CH="${CH:-1}"
+    PWM="${PWM:-1600}"
+    warn "會持續對 ch${CH} 送 ${PWM}，其餘通道 NOCHANGE。"
+    warn "確認螺旋槳淨空或船已架起再繼續。Ctrl-C 停止。"
+    read -r -p "繼續？(y/N) " ans
+    [ "${ans:-N}" = "y" ] || die "取消"
+    CHANNELS=$(python3 -c "
+ch, pwm = ${CH}, ${PWM}
+v = [65535] * 18
+v[ch - 1] = pwm
+print(v)")
+    in_container "ros2 topic pub -r 10 /mavros/rc/override \
+      mavros_msgs/msg/OverrideRCIn '{channels: ${CHANNELS}}'"
+    ;;
+
+  sysid)
+    info "ArduPilot 只接受來自 SYSID_MYGCS 那個 sysid 的 RC override"
+    in_container '
+      echo "--- 飛控的 SYSID_MYGCS ---"
+      ros2 run mavros mavparam get SYSID_MYGCS 2>/dev/null \
+        || echo "  (mavparam 讀不到，改用 Mission Planner / QGC 查)"
+      echo "--- mavros 自己的 system_id ---"
+      ros2 param get /mavros system_id 2>/dev/null \
+        || echo "  (讀不到，看 apm.launch 裡的設定，預設是 1)"'
     ;;
 
   logs)
