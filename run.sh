@@ -18,6 +18,8 @@
 #   ./run.sh mode MANUAL  切模式
 #   ./run.sh arm          解鎖（會先問你）
 #   ./run.sh disarm       上鎖
+#   ./run.sh fixsysid     把飛控的 SYSID_MYGCS 設成 mavros 的 system_id
+#                         （SID=1 可覆蓋）
 #   ./run.sh logs         看 log
 #   ./run.sh down         全部停掉
 #
@@ -138,6 +140,20 @@ case "${1:-up}" in
 
   state)
     in_container 'ros2 topic echo /mavros/state'
+    ;;
+
+  fixsysid)
+    # 把飛控的 SYSID_MYGCS 設成 mavros 用的 system_id，
+    # 否則 ArduPilot 會靜靜丟掉所有 RC override。
+    SID="${SID:-1}"
+    warn "會把飛控參數 SYSID_MYGCS 改成 ${SID}（這是寫進飛控的永久設定）。"
+    warn "先用 ./run.sh sysid 確認 mavros 的 system_id 真的是 ${SID}。"
+    read -r -p "繼續？(y/N) " ans
+    [ "${ans:-N}" = "y" ] || die "取消"
+    in_container "
+      ros2 run mavros mavparam set SYSID_MYGCS ${SID} \
+        || ros2 run mavros mavparam set MAV_GCS_SYSID ${SID} \
+        || echo '兩個參數名都設不了，改用 Mission Planner / QGC'"
     ;;
 
   servo)
