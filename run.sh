@@ -146,14 +146,23 @@ case "${1:-up}" in
     # 把飛控的 SYSID_MYGCS 設成 mavros 用的 system_id，
     # 否則 ArduPilot 會靜靜丟掉所有 RC override。
     SID="${SID:-1}"
-    warn "會把飛控參數 SYSID_MYGCS 改成 ${SID}（這是寫進飛控的永久設定）。"
+    warn "會把飛控參數 SYSID_MYGCS 改成 ${SID}（寫進飛控的永久設定）。"
     warn "先用 ./run.sh sysid 確認 mavros 的 system_id 真的是 ${SID}。"
     read -r -p "繼續？(y/N) " ans
     [ "${ans:-N}" = "y" ] || die "取消"
-    in_container "
-      ros2 run mavros mavparam set SYSID_MYGCS ${SID} \
-        || ros2 run mavros mavparam set MAV_GCS_SYSID ${SID} \
-        || echo '兩個參數名都設不了，改用 Mission Planner / QGC'"
+    in_container '
+      ok=
+      for n in /mavros/param /mavros; do
+        for k in SYSID_MYGCS MAV_GCS_SYSID; do
+          ros2 param set "$n" "$k" '"${SID}"' 2>/dev/null && {
+            echo "已設定 $n $k = '"${SID}"'"
+            ok=1
+            break 2
+          }
+        done
+      done
+      [ -n "$ok" ] || echo "設不了，改用 Mission Planner / QGC 手動改 SYSID_MYGCS"
+      ros2 service call /mavros/param/push mavros_msgs/srv/ParamPush "{}" >/dev/null 2>&1 || true'
     ;;
 
   servo)
@@ -205,12 +214,28 @@ print(v)")
   sysid)
     info "ArduPilot 只接受來自 SYSID_MYGCS 那個 sysid 的 RC override"
     in_container '
-      echo "--- 飛控的 SYSID_MYGCS ---"
-      ros2 run mavros mavparam get SYSID_MYGCS 2>/dev/null \
-        || echo "  (mavparam 讀不到，改用 Mission Planner / QGC 查)"
       echo "--- mavros 自己的 system_id ---"
-      ros2 param get /mavros system_id 2>/dev/null \
-        || echo "  (讀不到，看 apm.launch 裡的設定，預設是 1)"'
+      ros2 param get /mavros system_id 2>/dev/null || echo "  (讀不到)"
+      echo
+      echo "--- 飛控的 SYSID_MYGCS ---"
+      # ROS2 版 mavros 把飛控參數掛在 param plugin 的 node 底下，
+      # 用 ros2 param 讀，不是 mavparam CLI。先 pull 一次確保有快取。
+      ros2 service call /mavros/param/pull mavros_msgs/srv/ParamPull \
+        "{force_pull: false}" >/dev/null 2>&1 || true
+      found=
+      for n in /mavros/param /mavros; do
+        for k in SYSID_MYGCS MAV_GCS_SYSID; do
+          out=$(ros2 param get "$n" "$k" 2>/dev/null) && {
+            echo "  $n $k -> $out"
+            found=1
+          }
+        done
+      done
+      if [ -z "$found" ]; then
+        echo "  (ros2 param 讀不到。現有的 param 相關 node："
+        ros2 node list 2>/dev/null | grep -i param | sed "s/^/    /"
+        echo "   或直接用 Mission Planner / QGC 查 SYSID_MYGCS)"
+      fi'
     ;;
 
   logs)
