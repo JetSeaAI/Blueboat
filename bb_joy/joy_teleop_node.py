@@ -130,6 +130,9 @@ class JoyTeleopNode(Node):
 
         # --- 輸出設定 ---
         self.declare_parameter('output_mode', 'twist')
+        # 飛控不在這個模式時就不發指令。空字串 = 不檢查。
+        # 預設由 output_mode 決定：twist 要 GUIDED、rc_override 要 MANUAL。
+        self.declare_parameter('require_mode', '')
         self.declare_parameter('publish_rate', 10.0)
         self.declare_parameter('joy_timeout', 0.5)
 
@@ -167,6 +170,7 @@ class JoyTeleopNode(Node):
         self.deadzone = p('deadzone').value
         self.trigger_deadzone = p('trigger_deadzone').value
         self.output_mode = p('output_mode').value
+        self.require_mode = p('require_mode').value
         self.joy_timeout = p('joy_timeout').value
         self.max_linear = p('max_linear_speed').value
         self.max_reverse = p('max_reverse_speed').value
@@ -185,6 +189,12 @@ class JoyTeleopNode(Node):
             raise RuntimeError(
                 'output_mode=rc_override 需要 mavros_msgs，但 import 不到。'
                 ' 請 apt install ros-humble-mavros-msgs，或改用 output_mode=twist。')
+
+        if not self.require_mode:
+            self.require_mode = 'GUIDED' if self.output_mode == 'twist' else 'MANUAL'
+        # 讀不到 /mavros/state 就無從檢查，只能照發
+        if not HAVE_MAVROS_MSGS:
+            self.require_mode = ''
 
         idle, full = p('trigger_idle').value, p('trigger_full').value
         self.trig_fwd = TriggerReader(idle, full)
@@ -335,9 +345,27 @@ class JoyTeleopNode(Node):
         scale = self.scale_high if self.turbo else self.scale_low
         return clamp(steer * scale, -1.0, 1.0), clamp(throttle * scale, -1.0, 1.0)
 
+    def _mode_matches(self):
+        """飛控在對的模式嗎？
+
+        模式不對還一直送 setpoint，會在切回來的瞬間被拿去用，
+        造成沒人碰手把船卻自己動一下。寧可不發。
+        """
+        if not self.require_mode:
+            return True
+        current = getattr(self.state, 'mode', '') or ''
+        if current == self.require_mode:
+            return True
+        self.get_logger().warn(
+            f'飛控在 {current or "?"}，{self.output_mode} 需要 {self.require_mode}，暫不送指令',
+            throttle_duration_sec=3.0)
+        return False
+
     def _tick(self):
         steer, throttle = self._read_axes()
         self._log_state(steer, throttle)
+        if not self._mode_matches():
+            return
         if self.output_mode == 'twist':
             self._publish_twist(steer, throttle)
         else:

@@ -63,6 +63,53 @@ ros2 topic pub -r 10 /mavros/setpoint_velocity/cmd_vel_unstamped \
 要改上限直接調 `config/xbox.yaml` 的 `max_linear_speed`，不用動程式。
 節數換算：`m/s = 節 × 0.5144`。
 
+## 鬆手會倒車？—— twist 和 rc_override 的差別
+
+**在 GUIDED 底下，`linear.x = 0` 不是「油門歸零」，是「把速度控制到 0 並維持住」。**
+船還有前進慣性，ArduPilot 就主動下倒車推力去煞停 —— 表現出來就是鬆開扳機後
+突然噴一段倒車。切到 AUTO/MANUAL 再切回 GUIDED 才恢復，也是同一個閉迴路
+控制器重新接管時舊目標值和積分項還在。
+
+這不是手把邏輯的問題，是閉迴路速度控制的必然行為。
+
+| | `twist`（GUIDED） | `rc_override`（MANUAL） |
+| --- | --- | --- |
+| 控制方式 | 閉迴路，飛控算 PID 追速度 | 開迴路，PWM 直接對應推力 |
+| 鬆手 | 主動煞停，會倒車 | 真的沒推力，靠水阻滑行 |
+| 速度單位 | m/s，數字就是實際速度 | PWM，和推力的關係要自己抓 |
+| 適合 | 自駕、定速航行 | **手動駕駛** |
+
+### 手動駕駛建議改用 rc_override
+
+```bash
+OUTPUT_MODE=rc_override ./run.sh
+```
+
+飛控要切到 **MANUAL**（手把上按 A / ✕）。
+
+要注意的是這條路徑**還沒在你們船上驗證過**：
+
+- ArduPilot 的 `RC_OPTIONS` 要允許 RC override
+- 通道對應預設是 ch1 轉向、ch3 油門，和你們的接線不同的話改
+  `steer_channel` / `throttle_channel`
+- PWM 範圍預設 `1100 / 1500 / 1900`，和你們的 ESC 行程不同要調
+
+第一次測請把船架起來或確認螺旋槳淨空，先確認 `ros2 topic echo /mavros/rc/override`
+的數字合理、推力方向正確，再下水。
+
+### 模式守門
+
+節點現在會檢查飛控模式，不對就**不送指令**：
+
+| `output_mode` | 需要的模式 |
+| --- | --- |
+| `twist` | `GUIDED` |
+| `rc_override` | `MANUAL` |
+
+模式不對時 log 會說 `飛控在 X，twist 需要 GUIDED，暫不送指令`。
+這樣切回 GUIDED 的瞬間就不會有一筆舊的 setpoint 等在那裡被拿去執行。
+用 `require_mode: ""` 可以關掉這個檢查（不建議）。
+
 ## 安全機制
 
 - **Deadman**：RB / R1 沒按住，一律送 0，手一放船就停。
@@ -238,6 +285,11 @@ ros2 topic echo /mavros/state
 
 **`No module named 'mavros_msgs'`** — 現在不會再讓節點死掉了，只會印警告並停用
 解鎖/切模式。真的要那些功能就 `apt-get install -y ros-humble-mavros-msgs`。
+
+**鬆開扳機後船會噴一段倒車** — 見上面
+[鬆手會倒車？](#鬆手會倒車--twist-和-rc_override-的差別)。
+GUIDED 的閉迴路控制器把「速度 0」當成「主動煞停」。
+手動駕駛改用 `OUTPUT_MODE=rc_override ./run.sh` + MANUAL 模式。
 
 **能切模式、log 也正常，但船就是不動** — 依序排除：
 
