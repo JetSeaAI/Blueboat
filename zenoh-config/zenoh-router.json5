@@ -1,0 +1,27 @@
+{
+    mode: "router",
+    listen: {
+        endpoints: [
+            "tcp/0.0.0.0:7447"
+        ]
+    },
+    connect: { // connect to other routers like base-stations and other vessels
+        endpoints: [
+            // "tcp/10.66.66.111:7447"
+            // "tcp/"
+        ]
+    },
+    scouting: {
+        // The multicast scouting configuration.
+        multicast: {
+            // Whether multicast scouting is enabled or not
+            // ROS setting: disable multicast discovery by default
+            enabled: true
+        }
+    },
+    transport: {
+        shared_memory: {
+            enabled: true
+        }
+    }
+}

@@ -75,67 +75,65 @@ ros2 topic pub -r 10 /mavros/setpoint_velocity/cmd_vel_unstamped \
 
 ## 在 Docker 裡跑（ROS2 只有容器裡有）
 
-對齊 `js-docker/compose` 的慣例：一個 repo 一個 container，
-host 上 `~/Blueboat` 掛進容器的 `/home/Blueboat`，和
-`ros2-base-js-localization`、`ros2-base-js-propulsion` 同一層級。
-
 ```bash
-# 1. clone 到 home（路徑固定，compose 是照這個掛的）
-cd ~
-git clone git@github.com:JetSeaAI/Blueboat.git
-git clone git@github.com:JetSeaAI/zenoh-config.git
-
-# 2. 確認手把插著
-ls /dev/input/js*
-
-# 3. 起容器（會自己 colcon build 再 launch）
-cd ~/Blueboat/docker
-PAD=xbox docker compose up
+git clone https://github.com/JetSeaAI/Blueboat.git ~/Blueboat
+cd ~/Blueboat
+./run.sh
 ```
 
-| 變數 | 預設 | 說明 |
+就這樣。`run.sh` 會依序：檢查手把 → 需要的話起 zenoh router → 起遙控容器
+（容器裡自己 apt 裝套件、`colcon build`、`ros2 launch`）。
+
+`zenoh-config` 已經一起放在這個 repo 裡（[zenoh-config/](zenoh-config/)），
+不用另外 clone。
+
+### run.sh 的其他用法
+
+| 指令 | 做什麼 |
+| --- | --- |
+| `./run.sh` | 起 router（需要的話）+ 手把遙控 |
+| `./run.sh shell` | 進容器 bash，手動 debug |
+| `./run.sh joy` | 看 `/joy`，確認手把訊號 |
+| `./run.sh vel` | 看送出去的速度指令 |
+| `./run.sh logs` | 看 log |
+| `./run.sh down` | 全部停掉 |
+
+| 環境變數 | 預設 | 說明 |
 | --- | --- | --- |
-| `PAD` | `xbox` | `xbox` 或 `ps5`，決定讀哪個 config |
-| `JOY_DEV` | `/dev/input/js0` | 手把裝置節點 |
+| `PAD` | `xbox` | `xbox` 或 `ps5` |
+| `JOY_DEV` | `/dev/input/js0` | 手把裝置 |
 | `OUTPUT_MODE` | `twist` | `twist` 或 `rc_override` |
-| `RMW_IMPLEMENTATION` | `rmw_zenoh_cpp` | 要和 mavros 那邊一致 |
-| `ROS_DOMAIN_ID` | `0` | 要和 mavros 那台一致 |
-
-容器裡 [startup_bb_joy.sh](docker/startup_bb_joy.sh) 會做：source ROS →
-缺 `joy_linux` / `rmw_zenoh_cpp` 就 apt 裝 → 把 `/home/Blueboat` symlink 到
-`/ros2_ws/src/bb_joy` → `colcon build` → `ros2 launch`。**host 上不用自己 build。**
-
-zenoh router 不在這個 container 裡，要另外確認 IPC 上有在跑：
+| `NO_ROUTER` | — | 設 `1` 就不自己起 router |
 
 ```bash
-ros2 run rmw_zenoh_cpp rmw_zenohd
+PAD=ps5 JOY_DEV=/dev/input/js1 ./run.sh
 ```
 
-### 第一次上機建議手動跑
+### zenoh router 會不會重複起
 
-`restart: unless-stopped` 在 build 或 launch 失敗時會一直重啟刷 log，不好抓錯。
-第一次先進容器手動走一遍：
+`run.sh` 用 `/dev/tcp` 探 `127.0.0.1:7447`，有人在聽就沿用現有的 router，
+不會起第二個去搶 port。IPC 上本來就有 router 在跑的話它會自己讓開。
+
+### 第一次上機建議
+
+先確認手把訊號正確再接飛控：
 
 ```bash
-cd ~/Blueboat/docker
-docker compose run --rm ros2-base-js-blueboat bash
+# Terminal 1
+./run.sh
 
-# 容器內
-source /opt/ros/humble/setup.bash
-mkdir -p /ros2_ws/src && ln -sfn /home/Blueboat /ros2_ws/src/bb_joy
-cd /ros2_ws && colcon build --symlink-install --packages-select bb_joy
-source install/setup.bash
-ros2 topic echo /joy          # 先確認手把有訊號
+# Terminal 2
+./run.sh joy      # 按住 RB 踩 RT，看 axes[5] 從 1.0 跑到 -1.0
+./run.sh vel      # 再看速度指令對不對
 ```
 
-確認能跑之後再改用 `docker compose up` 常駐。
+手把 axis index 對不對是後面所有問題的根源，先確認這個再往下。
 
 > **不要 `source docker/startup_bb_joy.sh`。** 那支腳本結尾是 `exec`，
 > source 進互動 shell 會直接把你的 terminal 換掉，看起來就是「視窗突然消失」。
-> 它是設計給 compose 當 `command` 用的，要手動跑就直接執行 `./docker/startup_bb_joy.sh`
-> （現在腳本會擋下 source，也會在不是容器環境時給出提示）。
+> 它是設計給 compose 當 `command` 用的。`run.sh` 不受影響，正常用就好。
 
-`/ros2_ws` 沒有掛出來，所以每次重啟容器都會重 build（ament_python 幾秒而已），
+容器裡 `/ros2_ws` 沒有掛出來，所以每次重啟都會重 build（ament_python 幾秒），
 apt 裝的套件同樣不會留。之後嫌慢可以把 `joy_linux` 烤進映像。
 
 ## 手動建置（已經有 ROS2 環境的話）

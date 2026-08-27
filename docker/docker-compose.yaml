@@ -30,11 +30,51 @@ services:
 
     volumes:
       - "/home/${USER:-root}/Blueboat:/home/Blueboat"
-      - "/home/${USER:-root}/zenoh-config:/home/zenoh-config:ro"
+      - "/home/${USER:-root}/Blueboat/zenoh-config:/home/zenoh-config:ro"
       - "/dev:/dev"
       - "/etc/localtime:/etc/localtime:ro"
 
     command: ["/usr/bin/bash", "-ic", "/home/Blueboat/docker/startup_bb_joy.sh"]
+
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+
+  # zenoh router。IPC 上如果已經有 router 在跑就不用起這個，
+  # run.sh 會自己判斷 7447 有沒有人聽。
+  zenoh-router:
+    image: jetseaaiusvfleet/ros2-base:cpu
+    container_name: ros2-base-zenoh-router
+    profiles: ["router"]
+
+    network_mode: host
+    ipc: host
+    privileged: true
+    security_opt:
+      - seccomp=unconfined
+
+    user: "root:root"
+    working_dir: /home/Blueboat
+
+    environment:
+      - RMW_IMPLEMENTATION=rmw_zenoh_cpp
+      - ZENOH_ROUTER_CONFIG_URI=/home/zenoh-config/zenoh-router.json5
+      - ZENOH_SESSION_CONFIG_URI=/home/zenoh-config/zenoh-session.json5
+
+    volumes:
+      - "/home/${USER:-root}/Blueboat:/home/Blueboat"
+      - "/home/${USER:-root}/Blueboat/zenoh-config:/home/zenoh-config:ro"
+      - "/etc/localtime:/etc/localtime:ro"
+
+    command:
+      - /usr/bin/bash
+      - -ic
+      - |
+        source /opt/ros/humble/setup.bash
+        ros2 pkg prefix rmw_zenoh_cpp >/dev/null 2>&1 || {
+          apt-get update && apt-get install -y ros-humble-rmw-zenoh-cpp
+        }
+        exec ros2 run rmw_zenoh_cpp rmw_zenohd
 
     restart: unless-stopped
     tty: true

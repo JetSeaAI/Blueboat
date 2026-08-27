@@ -1,0 +1,22 @@
+{
+    mode: "peer",
+    connect: { // connect to other routers like base-stations and other vessels
+        endpoints: [
+            "tcp/localhost:7447",
+        ],
+    },
+    scouting: {
+        // The multicast scouting configuration.
+        multicast: {
+            // Whether multicast scouting is enabled or not
+            // ROS setting: disable multicast discovery by default
+            enabled: true,
+            }
+    },
+    transport: {
+        shared_memory: {
+            enabled: true
+        }
+    }
+
+}
