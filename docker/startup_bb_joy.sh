@@ -17,7 +17,7 @@ ros2 pkg prefix joy_linux >/dev/null 2>&1 || {
 
 WS=/ros2_ws
 mkdir -p "${WS}/src"
-ln -sfn /home/BB-joy "${WS}/src/bb_joy"
+ln -sfn /home/Blueboat "${WS}/src/bb_joy"
 
 cd "${WS}"
 colcon build --symlink-install --packages-select bb_joy

@@ -1,17 +1,23 @@
-# 沿用公司 ros2-base 映像。network_mode: host + ipc: host 是為了讓 zenoh
-# 的 multicast scouting 和 shared_memory 能跟 host 上的 mavros / router 對接。
+# 對齊 js-docker/compose 的慣例：一個 repo 一個 container，
+# host 上 ~/Blueboat 掛進容器的 /home/Blueboat。
+#
+# network_mode + ipc: host 是為了讓 zenoh 的 multicast scouting 和
+# shared_memory 能跟 host 上的 mavros / zenoh router 對接。
 # /dev 掛進去才讀得到手把 (/dev/input/js0)。
 services:
-  bb-joy:
+  ros2-base-js-blueboat:
     image: jetseaaiusvfleet/ros2-base:cpu
-    container_name: bb-joy
+    container_name: ros2-base-js-blueboat
+
     network_mode: host
     ipc: host
     privileged: true
     security_opt:
       - seccomp=unconfined
+
     user: "root:root"
-    working_dir: /home/BB-joy
+    working_dir: /home/Blueboat
+
     environment:
       # 要和 mavros 那邊用同一套 RMW，否則看不到彼此的 topic
       - RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-rmw_zenoh_cpp}
@@ -21,13 +27,15 @@ services:
       - PAD=${PAD:-xbox}
       - JOY_DEV=${JOY_DEV:-/dev/input/js0}
       - OUTPUT_MODE=${OUTPUT_MODE:-twist}
+
     volumes:
-      - "./..:/home/BB-joy"
-      # 單獨 clone 這個 repo 時，用 ZENOH_CONFIG_DIR 指到 zenoh-config 的實際位置
-      - "${ZENOH_CONFIG_DIR:-../../zenoh-config}:/home/zenoh-config:ro"
+      - "/home/${USER:-root}/Blueboat:/home/Blueboat"
+      - "/home/${USER:-root}/zenoh-config:/home/zenoh-config:ro"
       - "/dev:/dev"
       - "/etc/localtime:/etc/localtime:ro"
-    command: ["/usr/bin/bash", "-ic", "/home/BB-joy/docker/startup_bb_joy.sh"]
+
+    command: ["/usr/bin/bash", "-ic", "/home/Blueboat/docker/startup_bb_joy.sh"]
+
     restart: unless-stopped
     tty: true
     stdin_open: true

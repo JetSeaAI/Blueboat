@@ -75,11 +75,22 @@ ros2 topic pub -r 10 /mavros/setpoint_velocity/cmd_vel_unstamped \
 
 ## 在 Docker 裡跑（ROS2 只有容器裡有）
 
-```bash
-cd BB-joy/docker
-ls /dev/input/js*          # 先確認手把插上去了
+對齊 `js-docker/compose` 的慣例：一個 repo 一個 container，
+host 上 `~/Blueboat` 掛進容器的 `/home/Blueboat`，和
+`ros2-base-js-localization`、`ros2-base-js-propulsion` 同一層級。
 
-PAD=xbox JOY_DEV=/dev/input/js0 docker compose up
+```bash
+# 1. clone 到 home（路徑固定，compose 是照這個掛的）
+cd ~
+git clone git@github.com:JetSeaAI/Blueboat.git
+git clone git@github.com:JetSeaAI/zenoh-config.git
+
+# 2. 確認手把插著
+ls /dev/input/js*
+
+# 3. 起容器（會自己 colcon build 再 launch）
+cd ~/Blueboat/docker
+PAD=xbox docker compose up
 ```
 
 | 變數 | 預設 | 說明 |
@@ -87,19 +98,40 @@ PAD=xbox JOY_DEV=/dev/input/js0 docker compose up
 | `PAD` | `xbox` | `xbox` 或 `ps5`，決定讀哪個 config |
 | `JOY_DEV` | `/dev/input/js0` | 手把裝置節點 |
 | `OUTPUT_MODE` | `twist` | `twist` 或 `rc_override` |
-| `ROS_DOMAIN_ID` | `0` | 要和 mavros 那台一致 |
 | `RMW_IMPLEMENTATION` | `rmw_zenoh_cpp` | 要和 mavros 那邊一致 |
-| `ZENOH_CONFIG_DIR` | `../../zenoh-config` | `zenoh-config` repo 的位置 |
+| `ROS_DOMAIN_ID` | `0` | 要和 mavros 那台一致 |
 
-如果 BB-joy 是單獨 clone 的（旁邊沒有 `zenoh-config`），要指路徑：
+容器裡 [startup_bb_joy.sh](docker/startup_bb_joy.sh) 會做：source ROS →
+缺 `joy_linux` / `rmw_zenoh_cpp` 就 apt 裝 → 把 `/home/Blueboat` symlink 到
+`/ros2_ws/src/bb_joy` → `colcon build` → `ros2 launch`。**host 上不用自己 build。**
+
+zenoh router 不在這個 container 裡，要另外確認 IPC 上有在跑：
 
 ```bash
-git clone git@github.com:JetSeaAI/zenoh-config.git ~/zenoh-config
-ZENOH_CONFIG_DIR=~/zenoh-config PAD=xbox docker compose up
+ros2 run rmw_zenoh_cpp rmw_zenohd
 ```
 
-compose 用 `network_mode: host` + 掛 `/dev`，所以和同一台機器上的 mavros
-直接對接，也讀得到手把。
+### 第一次上機建議手動跑
+
+`restart: unless-stopped` 在 build 或 launch 失敗時會一直重啟刷 log，不好抓錯。
+第一次先進容器手動走一遍：
+
+```bash
+cd ~/Blueboat/docker
+docker compose run --rm ros2-base-js-blueboat bash
+
+# 容器內
+source /opt/ros/humble/setup.bash
+mkdir -p /ros2_ws/src && ln -sfn /home/Blueboat /ros2_ws/src/bb_joy
+cd /ros2_ws && colcon build --symlink-install --packages-select bb_joy
+source install/setup.bash
+ros2 topic echo /joy          # 先確認手把有訊號
+```
+
+確認能跑之後再改用 `docker compose up` 常駐。
+
+`/ros2_ws` 沒有掛出來，所以每次重啟容器都會重 build（ament_python 幾秒而已），
+apt 裝的套件同樣不會留。之後嫌慢可以把 `joy_linux` 烤進映像。
 
 ## 手動建置（已經有 ROS2 環境的話）
 
