@@ -130,6 +130,11 @@ ros2 topic echo /joy          # 先確認手把有訊號
 
 確認能跑之後再改用 `docker compose up` 常駐。
 
+> **不要 `source docker/startup_bb_joy.sh`。** 那支腳本結尾是 `exec`，
+> source 進互動 shell 會直接把你的 terminal 換掉，看起來就是「視窗突然消失」。
+> 它是設計給 compose 當 `command` 用的，要手動跑就直接執行 `./docker/startup_bb_joy.sh`
+> （現在腳本會擋下 source，也會在不是容器環境時給出提示）。
+
 `/ros2_ws` 沒有掛出來，所以每次重啟容器都會重 build（ament_python 幾秒而已），
 apt 裝的套件同樣不會留。之後嫌慢可以把 `joy_linux` 烤進映像。
 
