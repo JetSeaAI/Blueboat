@@ -118,6 +118,30 @@ OUTPUT_MODE=rc_override ./run.sh
 
 `rcin` 的 `channels[0]`（ch1）有沒有變成 1600？
 
+#### `rc/in` 顯示 `channels: []`
+
+表示飛控**沒有在送 RC_CHANNELS 訊息**，不是「送了但值沒變」。可能是：
+
+- 船上根本沒接遙控接收機（純 MAVLink 控制）—— 這樣 `rc/in` 空是正常的
+- MAVLink stream rate 被關掉（`SR0_RC_CHAN = 0`）—— `./run.sh rate` 可以調高
+
+**`rc/in` 空不代表 override 沒作用。** `rc/in` 是「接收機收到什麼」，
+override 則是繞過接收機直接注入。要確認 override 有沒有生效，看
+**`/mavros/rc/out`** —— 那是飛控實際送給 ESC 的 PWM：
+
+```bash
+./run.sh servo
+```
+
+MANUAL + 已解鎖的狀態下送 override，`rc/out` 的對應通道應該跟著動。
+動了就是通了，剩下的是通道對應；完全不動才是飛控在丟棄 override。
+
+#### 沒有接收機的話還要注意 RC failsafe
+
+船上沒有遙控接收機時，ArduPilot 可能一直處在 **radio failsafe**，
+即使在 MANUAL 也不會給推力。`./run.sh fc` 看有沒有 `Radio failsafe` 之類的訊息，
+有的話要調 `FS_THR_ENABLE`。
+
 如果要連手把一起測：
 
 ```bash

@@ -12,6 +12,8 @@
 #   ./run.sh rctest       不經過 bb_joy，直接送一個固定 RC override 測飛控
 #                         （CH=1 PWM=1600 可覆蓋）
 #   ./run.sh sysid        查 SYSID_MYGCS 和 mavros 的 system_id
+#   ./run.sh servo        看飛控送給 ESC 的 PWM（override 生效與否看這個）
+#   ./run.sh rate         調高 MAVLink stream rate（rc/in 空的時候先試）
 #   ./run.sh logs         看 log
 #   ./run.sh down         全部停掉
 #
@@ -111,6 +113,18 @@ case "${1:-up}" in
 
   rcout)
     in_container 'ros2 topic echo /mavros/rc/override'
+    ;;
+
+  servo)
+    # 飛控實際送給 ESC 的 PWM。override 有沒有生效看這個，不是看 rc/in。
+    in_container 'ros2 topic echo /mavros/rc/out'
+    ;;
+
+  rate)
+    info "把 MAVLink stream rate 調高（rc/in 空的時候先試這個）"
+    in_container '
+      ros2 run mavros mavsys rate --all 10 2>/dev/null \
+        || echo "  (mavsys 不可用，改用 Mission Planner 設 SR0_* 參數)"'
     ;;
 
   fc)
