@@ -5,6 +5,8 @@
 #   ./run.sh shell        進容器 bash，手動 debug 用
 #   ./run.sh joy          只看 /joy，確認手把訊號
 #   ./run.sh vel          看送出去的速度指令
+#   ./run.sh rcout        看送出去的 RC override
+#   ./run.sh rcin         看飛控實際收到的 RC（判斷 override 有沒有被接受）
 #   ./run.sh logs         看 log
 #   ./run.sh down         全部停掉
 #
@@ -91,6 +93,19 @@ case "${1:-up}" in
   vel)
     docker exec -it "${BB}" bash -ic \
       'source /opt/ros/humble/setup.bash && source /ros2_ws/install/setup.bash 2>/dev/null; ros2 topic echo /mavros/setpoint_velocity/cmd_vel_unstamped' \
+      || die "容器沒在跑？先開另一個 terminal 跑 ./run.sh"
+    ;;
+
+  rcin)
+    # 決定性測試：ArduPilot 有沒有真的收下 override
+    docker exec -it "${BB}" bash -ic \
+      'source /opt/ros/humble/setup.bash && source /ros2_ws/install/setup.bash 2>/dev/null; ros2 topic echo /mavros/rc/in' \
+      || die "容器沒在跑？先開另一個 terminal 跑 ./run.sh"
+    ;;
+
+  rcout)
+    docker exec -it "${BB}" bash -ic \
+      'source /opt/ros/humble/setup.bash && source /ros2_ws/install/setup.bash 2>/dev/null; ros2 topic echo /mavros/rc/override' \
       || die "容器沒在跑？先開另一個 terminal 跑 ./run.sh"
     ;;
 

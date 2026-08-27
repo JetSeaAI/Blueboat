@@ -97,6 +97,65 @@ OUTPUT_MODE=rc_override ./run.sh
 第一次測請把船架起來或確認螺旋槳淨空，先確認 `ros2 topic echo /mavros/rc/override`
 的數字合理、推力方向正確，再下水。
 
+### rc_override 在 MANUAL 沒反應？
+
+先做這個測試，它能決定性地分辨是「飛控沒收下」還是「收下了但對應錯」：
+
+```bash
+# Terminal 1
+OUTPUT_MODE=rc_override ./run.sh
+
+# Terminal 2 —— 我們送出去的
+./run.sh rcout
+
+# Terminal 3 —— 飛控實際看到的
+./run.sh rcin
+```
+
+按住 RB 踩扳機，看 `rcout` 的 `channels[2]`（ch3 油門）有沒有離開 1500。
+然後看 `rcin`：
+
+| `rcin` 的表現 | 意思 | 往哪查 |
+| --- | --- | --- |
+| **完全不跟著變** | ArduPilot 把 override 丟掉了 | 下面的 `SYSID_MYGCS` |
+| 跟著變但船不動 | 收下了，是通道 / 模式 / 解鎖的問題 | 下面第 2、3 點 |
+
+#### 1. `SYSID_MYGCS`（最常見）
+
+ArduPilot 只接受**來自 `SYSID_MYGCS` 指定的那個 GCS** 的 RC override，
+其他來源的直接丟掉、不回報任何錯誤。這是 MAVROS + ArduPilot 最典型的坑。
+
+- ArduPilot 預設 `SYSID_MYGCS = 255`（給地面站用的）
+- MAVROS 預設自己的 `system_id = 1`
+
+兩邊對不上，override 就靜靜被忽略 —— 而 `twist`（GUIDED setpoint）**沒有**
+這個限制，所以會出現「只有 GUIDED 能動」這個現象。
+
+兩種改法，擇一：
+
+```bash
+# A. 把飛控的 SYSID_MYGCS 改成 mavros 的 system_id（通常是 1）
+#    用 Mission Planner / QGC 改，或
+ros2 run mavros mavparam set SYSID_MYGCS 1
+
+# B. 把 mavros 的 system_id 改成 255（改 apm.launch 的參數）
+```
+
+> ArduPilot 4.7 之後這個參數改名叫 `MAV_GCS_SYSID`，行為一樣。
+> `ros2 run mavros mavparam get SYSID_MYGCS` 可以先確認目前值。
+
+#### 2. 通道對應
+
+預設 ch1 轉向、ch3 油門，對應 ArduPilot 的 `RCMAP_ROLL` / `RCMAP_THROTTLE`。
+你們如果是差速推進（skid steering）或改過 `RCMAP_*`，要跟著改
+`steer_channel` / `throttle_channel`。
+
+#### 3. 其他
+
+- 船要**解鎖**（armed），MANUAL 模式下沒解鎖一樣不會動
+- `RC_OPTIONS` 有幾個 bit 會影響 override 行為
+- PWM 要落在該通道的 `RCn_MIN` / `RCn_MAX` 之內
+
 ### 模式守門
 
 節點現在會檢查飛控模式，不對就**不送指令**：
