@@ -253,8 +253,13 @@ print(v)")
       echo "════ 2. GCS sysid（兩邊必須一致）════"
       echo "-- mavros system_id --"
       ros2 param get /mavros system_id 2>/dev/null || echo "  (讀不到)"
-      ros2 service call /mavros/param/pull mavros_msgs/srv/ParamPull \
-        "{force_pull: true}" >/dev/null 2>&1 || true
+      # 第一次 pull 要把飛控上千個參數抓回來，可能要 1-2 分鐘。
+      # 沒抓完的話 ros2 param get 會回 "Parameter not set" —— 那是還沒同步，
+      # 不是飛控上沒有這個參數。
+      echo "  (正在同步飛控參數，第一次可能要 1-2 分鐘，請不要中斷…)"
+      timeout 180 ros2 service call /mavros/param/pull mavros_msgs/srv/ParamPull \
+        "{force_pull: false}" >/dev/null 2>&1 \
+        || echo "  (參數同步逾時，下面的值可能不準)"
       for k in MAV_GCS_SYSID SYSID_MYGCS; do
         for n in /mavros/param /mavros; do
           out=$(ros2 param get "$n" "$k" 2>/dev/null) && echo "-- $k -- $out"

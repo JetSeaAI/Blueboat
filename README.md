@@ -276,6 +276,35 @@ MANUAL 和 HOLD 不需要位置，所以照樣進得去 —— 症狀正好是�
 這樣切回 GUIDED 的瞬間就不會有一筆舊的 setpoint 等在那裡被拿去執行。
 用 `require_mode: ""` 可以關掉這個檢查（不建議）。
 
+## 和 MOOS 自駕共存
+
+**`MAV_GCS_SYSID` 那道關卡只擋 RC override。** ArduPilot 對
+`RC_CHANNELS_OVERRIDE` 有來源檢查（那等於假裝自己是遙控器），
+而 GUIDED setpoint、切模式、解鎖都沒有這個檢查。
+
+所以 MOOS 走 setpoint 路徑（GUIDED 速度指令或 AUTO + 航點）時，
+**不會遇到這個問題** —— 和本套件的 `twist` 模式是同一個介面。
+
+| 用途 | 介面 | 受 sysid 限制？ |
+| --- | --- | --- |
+| 手把 `twist` | `/mavros/setpoint_velocity/cmd_vel_unstamped` | 否 |
+| 手把 `rc_override` | `/mavros/rc/override` | **是** |
+| MOOS 自駕 | setpoint / 航點 | 否 |
+
+因此手動駕駛用 `twist` 在架構上和自駕一致，只需要維護一條控制路徑。
+
+### ⚠️ 仲裁：手把和 MOOS 會打架
+
+兩邊都發到同一個 topic 的話，會變成「誰後發誰贏」，船的行為不可預測。
+**這需要明確的優先權設計，不能靠巧合。** 常見做法：
+
+- 握住 deadman 時手把接管，放開才交還 MOOS（本套件的 deadman 已經是這個語意）
+- 用一個 mux 節點決定誰能發，而不是兩個節點各發各的
+- 或讓手把只在特定飛控模式下作用（本套件的 `require_mode` 是這個方向）
+
+目前本套件**沒有**做跨節點仲裁 —— 它只管自己在鬆手時送 0。
+接上 MOOS 之前要先決定仲裁方式。
+
 ## 安全機制
 
 - **Deadman**：RB / R1 沒按住，一律送 0，手一放船就停。
