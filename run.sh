@@ -14,6 +14,10 @@
 #   ./run.sh sysid        查 SYSID_MYGCS 和 mavros 的 system_id
 #   ./run.sh servo        看飛控送給 ESC 的 PWM（override 生效與否看這個）
 #   ./run.sh rate         調高 MAVLink stream rate（rc/in 空的時候先試）
+#   ./run.sh state        看飛控狀態（armed / mode）
+#   ./run.sh mode MANUAL  切模式
+#   ./run.sh arm          解鎖（會先問你）
+#   ./run.sh disarm       上鎖
 #   ./run.sh logs         看 log
 #   ./run.sh down         全部停掉
 #
@@ -113,6 +117,27 @@ case "${1:-up}" in
 
   rcout)
     in_container 'ros2 topic echo /mavros/rc/override'
+    ;;
+
+  arm|disarm)
+    val=$([ "$1" = "arm" ] && echo true || echo false)
+    if [ "$1" = "arm" ]; then
+      warn "解鎖後推進器可能立刻轉動。確認螺旋槳淨空或船已架起。"
+      read -r -p "繼續？(y/N) " ans
+      [ "${ans:-N}" = "y" ] || die "取消"
+    fi
+    in_container "ros2 service call /mavros/cmd/arming \
+      mavros_msgs/srv/CommandBool '{value: ${val}}'"
+    ;;
+
+  mode)
+    [ -n "${2:-}" ] || die "用法：./run.sh mode MANUAL|HOLD|GUIDED|AUTO"
+    in_container "ros2 service call /mavros/set_mode \
+      mavros_msgs/srv/SetMode '{base_mode: 0, custom_mode: \"$2\"}'"
+    ;;
+
+  state)
+    in_container 'ros2 topic echo /mavros/state'
     ;;
 
   servo)

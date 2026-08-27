@@ -136,6 +136,26 @@ override 則是繞過接收機直接注入。要確認 override 有沒有生效�
 MANUAL + 已解鎖的狀態下送 override，`rc/out` 的對應通道應該跟著動。
 動了就是通了，剩下的是通道對應；完全不動才是飛控在丟棄 override。
 
+#### `rc/out` 停在 1510 之類的中立值
+
+**ArduPilot 在 disarmed 狀態下，油門輸出一律鎖在中立 trim**，不管什麼模式、
+也不管有沒有 override。所以「送了 override 但 `rc/out` 不動」最常見的原因
+就是船沒解鎖，而不是 override 被丟棄。
+
+完整的測試順序：
+
+```bash
+./run.sh state           # 先看 armed / mode
+./run.sh mode MANUAL
+./run.sh arm             # ⚠️ 螺旋槳淨空
+CH=3 PWM=1600 ./run.sh rctest    # 另一個 terminal
+./run.sh servo           # 再一個 terminal，看 ch3 有沒有離開 1510
+./run.sh disarm          # 測完記得上鎖
+```
+
+`rc/out` 的通道排列對應 `SERVOn_FUNCTION`，一艘船通常是
+ch1 = 轉向、ch3 = 油門，其餘沒指派功能所以是 `0`。
+
 #### 沒有接收機的話還要注意 RC failsafe
 
 船上沒有遙控接收機時，ArduPilot 可能一直處在 **radio failsafe**，
