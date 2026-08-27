@@ -72,22 +72,33 @@ class Edge:
 class TriggerReader:
     """把類比扳機讀成 [0, 1]。
 
-    joy_linux 的扳機沒踩是 +1.0、踩到底是 -1.0，但是在「開機後第一次踩下去」
-    之前，driver 會一直回 0.0 —— 那個 0.0 是「還沒讀到」不是「踩一半」。
-    所以在第一次看到非零值之前，一律當成沒踩。
+    常見的兩種回報方式：
+      idle=+1.0, full=-1.0  典型的 joy_linux / xpad
+      idle= 0.0, full=+1.0  部分驅動（含某些藍牙模式）
+
+    第一種有個陷阱：driver 在「開機後扳機第一次被踩下去」之前會一直回 0.0，
+    而 0.0 剛好落在區間正中間，直接換算會變成油門半開。所以要等看到第一個
+    非 0 的值才開始相信讀數。
+
+    第二種不需要（也不能用）那個保護 —— 0.0 本來就是它的 idle 值，
+    再等下去油門會永遠是 0。所以只在 idle 不是 0 的時候才啟用保護。
     """
 
     def __init__(self, idle=1.0, full=-1.0):
         self.idle = idle
         self.full = full
-        self._initialised = False
+        # idle 就是 0 的話，0.0 是合法讀數，不能拿它當「還沒讀到」的哨兵
+        self._needs_first_event = (idle != 0.0)
+        self._seen_event = False
 
     def read(self, raw):
-        if not self._initialised:
+        if self._needs_first_event and not self._seen_event:
             if raw == 0.0:
                 return 0.0
-            self._initialised = True
+            self._seen_event = True
         span = self.idle - self.full
+        if span == 0.0:
+            return 0.0
         return clamp((self.idle - raw) / span, 0.0, 1.0)
 
 
@@ -216,6 +227,15 @@ class JoyTeleopNode(Node):
         self.state = msg
 
     def _on_joy(self, msg):
+        if self.last_joy is None:
+            self.get_logger().info(
+                f'第一筆 /joy：{len(msg.axes)} 軸 {len(msg.buttons)} 鍵\n'
+                f'  axes    = {[round(a, 3) for a in msg.axes]}\n'
+                f'  buttons = {list(msg.buttons)}\n'
+                f'  轉向=axes[{self.axis_steer}] 前進=axes[{self.axis_fwd}] '
+                f'後退=axes[{self.axis_rev}] deadman=buttons[{self.btn_deadman}]\n'
+                f'  扳機沒踩時應該是 {self.trig_fwd.idle}；不是的話請改 '
+                f'config 的 trigger_idle / trigger_full')
         self.last_joy = msg
         self.last_joy_time = self.get_clock().now()
         self._handle_buttons(msg)
@@ -312,10 +332,35 @@ class JoyTeleopNode(Node):
 
     def _tick(self):
         steer, throttle = self._read_axes()
+        self._log_state(steer, throttle)
         if self.output_mode == 'twist':
             self._publish_twist(steer, throttle)
         else:
             self._publish_rc(steer, throttle)
+
+    def _log_state(self, steer, throttle):
+        """每秒回報一次，讓「為什麼船不動」可以一眼看出卡在哪。"""
+        if self.last_joy is None:
+            self.get_logger().warn(
+                '還沒收到任何 /joy —— joy_linux_node 有在跑嗎？',
+                throttle_duration_sec=2.0)
+            return
+
+        deadman = (0 <= self.btn_deadman < len(self.last_joy.buttons)
+                   and self.last_joy.buttons[self.btn_deadman] == 1)
+        if not deadman:
+            hint = f'未按住 deadman (buttons[{self.btn_deadman}])'
+        elif throttle == 0.0 and steer == 0.0:
+            hint = '按住 deadman 但搖桿/扳機都是中立'
+        else:
+            hint = f'檔位={"全速" if self.turbo else "慢速"}'
+
+        armed = getattr(self.state, 'armed', None)
+        mode = getattr(self.state, 'mode', None)
+        fc = '' if armed is None else f'  飛控: armed={armed} mode={mode}'
+        self.get_logger().info(
+            f'steer={steer:+.2f} throttle={throttle:+.2f}  {hint}{fc}',
+            throttle_duration_sec=1.0)
 
     def _publish_twist(self, steer, throttle):
         msg = Twist()

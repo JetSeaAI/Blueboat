@@ -237,6 +237,20 @@ ros2 topic echo /mavros/state
 **`No module named 'mavros_msgs'`** — 現在不會再讓節點死掉了，只會印警告並停用
 解鎖/切模式。真的要那些功能就 `apt-get install -y ros-humble-mavros-msgs`。
 
+**能切模式、log 也正常，但船就是不動** — 依序排除：
+
+1. `./run.sh vel` 看 `linear.x` 有沒有數字。**一直是 0** 就是手把端，往下看第 2 步；
+   **有數字**就是飛控端，跳到第 4 步。
+2. 節點每秒會印一行 `steer=… throttle=… <提示>`，直接看它卡在哪
+   （沒按 deadman、扳機中立、還是沒收到 `/joy`）。
+3. `./run.sh joy`，**手不要碰扳機**，看 `axes[2]` / `axes[5]` 停在多少。
+   不是 `1.0` 的話要改 config：停在 `0.0` 就設 `trigger_idle: 0.0` +
+   `trigger_full: 1.0`；停在 `-1.0` 就設 `trigger_idle: -1.0` + `trigger_full: 1.0`。
+4. 飛控端：`twist` 要在 **GUIDED** 模式而且已解鎖。log 尾巴的
+   `armed=… mode=…` 可以直接確認。
+5. 速度太小推不動：慢速檔 RT 踩到底只有 0.25 m/s。按 LB 切全速試試，
+   或把 `scale_low` 調大。
+
 **踩 RT 沒反應** — 先 `ros2 topic echo /joy` 看 `axes[5]` 會不會變。
 有些 Xbox 手把（尤其藍牙模式）扳機的 index 不同，把實際的填回
 `config/xbox.yaml` 的 `axis_throttle_forward`。
