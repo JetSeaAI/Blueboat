@@ -1,0 +1,43 @@
+# Xbox 手把 (Linux joy_linux 驅動的預設排列)
+# axes:    0=LX 1=LY 2=LT 3=RX 4=RY 5=RT 6=十字左右 7=十字上下
+# buttons: 0=A 1=B 2=X 3=Y 4=LB 5=RB 6=Back 7=Start 8=Guide 9=L3 10=R3
+bb_joy_teleop:
+  ros__parameters:
+    axis_steer: 0              # 左搖桿 左右 -> 轉向
+    axis_throttle_forward: 5   # RT -> 前進
+    axis_throttle_reverse: 2   # LT -> 後退
+    trigger_idle: 1.0          # 扳機沒踩時的原始值
+    trigger_full: -1.0         # 扳機踩到底的原始值
+
+    button_deadman: 5        # RB 按住才會出力
+    button_turbo: 4          # LB 切慢速 / 全速
+    button_arm: 7            # Start
+    button_disarm: 6         # Back
+    button_mode_manual: 0    # A
+    button_mode_hold: 1      # B
+    button_mode_guided: 2    # X
+    button_mode_auto: 3      # Y
+
+    invert_steer: false
+    deadzone: 0.08
+    trigger_deadzone: 0.05
+
+    output_mode: twist
+    publish_rate: 10.0
+    joy_timeout: 0.5
+
+    # 船目前限速 0.5 m/s
+    max_linear_speed: 0.5
+    max_reverse_speed: 0.3
+    max_angular_speed: 0.5
+
+    # 慢速檔 0.5 倍 -> 前進最高 0.25 m/s；按 LB 切全速才到 0.5
+    scale_low: 0.5
+    scale_high: 1.0
+
+    # 以下只有 output_mode=rc_override 才會用到
+    steer_channel: 1
+    throttle_channel: 3
+    pwm_min: 1100
+    pwm_mid: 1500
+    pwm_max: 1900

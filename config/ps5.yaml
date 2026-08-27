@@ -1,0 +1,43 @@
+# PS5 DualSense 手把 (Linux hid-playstation 驅動)
+# axes:    0=LX 1=LY 2=L2 3=RX 4=RY 5=R2 6=十字左右 7=十字上下
+# buttons: 0=X 1=O 2=△ 3=□ 4=L1 5=R1 6=L2 7=R2 8=Create 9=Options 10=PS 11=L3 12=R3
+bb_joy_teleop:
+  ros__parameters:
+    axis_steer: 0              # 左搖桿 左右 -> 轉向
+    axis_throttle_forward: 5   # R2 -> 前進
+    axis_throttle_reverse: 2   # L2 -> 後退
+    trigger_idle: 1.0          # 扳機沒踩時的原始值
+    trigger_full: -1.0         # 扳機踩到底的原始值
+
+    button_deadman: 5        # R1 按住才會出力
+    button_turbo: 4          # L1 切慢速 / 全速
+    button_arm: 9            # Options
+    button_disarm: 8         # Create
+    button_mode_manual: 0    # X (Cross)
+    button_mode_hold: 1      # O (Circle)
+    button_mode_guided: 2    # △ (Triangle)
+    button_mode_auto: 3      # □ (Square)
+
+    invert_steer: false
+    deadzone: 0.08
+    trigger_deadzone: 0.05
+
+    output_mode: twist
+    publish_rate: 10.0
+    joy_timeout: 0.5
+
+    # 船目前限速 0.5 m/s
+    max_linear_speed: 0.5
+    max_reverse_speed: 0.3
+    max_angular_speed: 0.5
+
+    # 慢速檔 0.5 倍 -> 前進最高 0.25 m/s；按 L1 切全速才到 0.5
+    scale_low: 0.5
+    scale_high: 1.0
+
+    # 以下只有 output_mode=rc_override 才會用到
+    steer_channel: 1
+    throttle_channel: 3
+    pwm_min: 1100
+    pwm_mid: 1500
+    pwm_max: 1900
