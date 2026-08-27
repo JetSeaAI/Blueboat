@@ -178,7 +178,33 @@ OUTPUT_MODE=rc_override ./run.sh    # Terminal 1
 | **完全不跟著變** | ArduPilot 把 override 丟掉了 | 下面的 `SYSID_MYGCS` |
 | 跟著變但船不動 | 收下了，是通道 / 模式 / 解鎖的問題 | 下面第 2、3 點 |
 
-#### 1. `SYSID_MYGCS`（最常見）
+#### 1. GCS sysid 不一致（**這艘船就是這個問題**）
+
+ArduPilot 只接受**來自指定 sysid 的那個 GCS** 的 RC override，
+其他來源直接丟掉、不回報任何錯誤。而 GUIDED 的速度 setpoint **沒有**這個限制
+—— 所以症狀是「GUIDED 能動、MANUAL + rc_override 完全沒反應」。
+
+本船實測：
+
+| | 值 |
+| --- | --- |
+| 飛控 `MAV_GCS_SYSID` | `255` |
+| mavros `system_id` | `1` |
+
+> ArduPilot 4.7 起參數改名為 `MAV_GCS_SYSID`，舊名 `SYSID_MYGCS` 會顯示 not set。
+> 讀取要走 `ros2 param`／`ParamPull`，寫入要走 `ParamSetV2` service，
+> `mavparam` CLI 和 `ros2 param set` 都沒用。
+
+兩個方向擇一，**改一邊就好**：
+
+**A. 改 mavros（建議）** —— 在 `apm.launch` 把 `system_id` 設成 `255`。
+不動飛控參數，可逆，而且 255 本來就是 ArduPilot 期待的 GCS sysid。
+
+**B. 改飛控** —— `./run.sh fixsysid` 把 `MAV_GCS_SYSID` 設成 `1`。
+⚠️ 如果你們也用 Mission Planner 操控，它通常以 sysid 255 連線，
+改完那邊的搖桿/override 會失效。
+
+#### 1b. 舊韌體的 `SYSID_MYGCS`
 
 ArduPilot 只接受**來自 `SYSID_MYGCS` 指定的那個 GCS** 的 RC override，
 其他來源的直接丟掉、不回報任何錯誤。這是 MAVROS + ArduPilot 最典型的坑。

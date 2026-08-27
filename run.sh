@@ -143,26 +143,30 @@ case "${1:-up}" in
     ;;
 
   fixsysid)
-    # 把飛控的 SYSID_MYGCS 設成 mavros 用的 system_id，
+    # 讓 mavros 的 sysid 和飛控的 MAV_GCS_SYSID 對上，
     # 否則 ArduPilot 會靜靜丟掉所有 RC override。
+    #
+    # 飛控參數要走 ParamSetV2 service —— ros2 param set 對 mavros 沒用。
     SID="${SID:-1}"
-    warn "會把飛控參數 SYSID_MYGCS 改成 ${SID}（寫進飛控的永久設定）。"
-    warn "先用 ./run.sh sysid 確認 mavros 的 system_id 真的是 ${SID}。"
-    read -r -p "繼續？(y/N) " ans
+    warn "會把飛控的 MAV_GCS_SYSID 改成 ${SID}（寫進飛控的永久設定）。"
+    warn "如果你們也用 Mission Planner 操控，它通常是 255，改完那邊的"
+    warn "搖桿/override 功能會失效。不確定的話改 mavros 端比較安全："
+    warn "  在 apm.launch 把 system_id 設成 255"
+    read -r -p "繼續改飛控？(y/N) " ans
     [ "${ans:-N}" = "y" ] || die "取消"
     in_container '
-      ok=
-      for n in /mavros/param /mavros; do
-        for k in SYSID_MYGCS MAV_GCS_SYSID; do
-          ros2 param set "$n" "$k" '"${SID}"' 2>/dev/null && {
-            echo "已設定 $n $k = '"${SID}"'"
-            ok=1
-            break 2
-          }
-        done
-      done
-      [ -n "$ok" ] || echo "設不了，改用 Mission Planner / QGC 手動改 SYSID_MYGCS"
-      ros2 service call /mavros/param/push mavros_msgs/srv/ParamPush "{}" >/dev/null 2>&1 || true'
+      set_one() {
+        ros2 service call /mavros/param/set mavros_msgs/srv/ParamSetV2 \
+          "{force_set: true, param_id: \"$1\", value: {type: 2, integer_value: '"${SID}"'}}" \
+          2>/dev/null | grep -q "success=True"
+      }
+      if set_one MAV_GCS_SYSID; then
+        echo "已設定 MAV_GCS_SYSID = '"${SID}"'"
+      elif set_one SYSID_MYGCS; then
+        echo "已設定 SYSID_MYGCS = '"${SID}"'"
+      else
+        echo "設不了。改用 Mission Planner / QGC，或把 mavros 的 system_id 改成 255"
+      fi'
     ;;
 
   servo)
