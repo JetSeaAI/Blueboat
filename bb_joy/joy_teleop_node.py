@@ -21,11 +21,20 @@ import math
 
 import rclpy
 from geometry_msgs.msg import Twist
-from mavros_msgs.msg import OverrideRCIn, State
-from mavros_msgs.srv import CommandBool, SetMode
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import Joy
+
+# 開船只需要 geometry_msgs 的 Twist —— mavros 跑在別的節點，我們只是往它的
+# topic 發東西。mavros_msgs 只有這些附加功能才用得到：解鎖/上鎖、切模式、
+# 讀 /mavros/state、rc_override。沒裝就退化成「只發速度指令」，照樣能開。
+try:
+    from mavros_msgs.msg import OverrideRCIn, State
+    from mavros_msgs.srv import CommandBool, SetMode
+    HAVE_MAVROS_MSGS = True
+except ImportError:
+    OverrideRCIn = State = CommandBool = SetMode = None
+    HAVE_MAVROS_MSGS = False
 
 # MAVROS state 是 best effort 發的，QoS 不合就收不到
 STATE_QOS = QoSProfile(
@@ -159,6 +168,10 @@ class JoyTeleopNode(Node):
 
         if self.output_mode not in ('twist', 'rc_override'):
             raise ValueError(f"未知的 output_mode: {self.output_mode}")
+        if self.output_mode == 'rc_override' and not HAVE_MAVROS_MSGS:
+            raise RuntimeError(
+                'output_mode=rc_override 需要 mavros_msgs，但 import 不到。'
+                ' 請 apt install ros-humble-mavros-msgs，或改用 output_mode=twist。')
 
         idle, full = p('trigger_idle').value, p('trigger_full').value
         self.trig_fwd = TriggerReader(idle, full)
@@ -167,17 +180,27 @@ class JoyTeleopNode(Node):
         self.edge = Edge()
         self.last_joy = None
         self.last_joy_time = None
-        self.state = State()
+        self.state = State() if HAVE_MAVROS_MSGS else None
         self.turbo = False
 
         self.twist_pub = self.create_publisher(
             Twist, '/mavros/setpoint_velocity/cmd_vel_unstamped', 10)
-        self.rc_pub = self.create_publisher(OverrideRCIn, '/mavros/rc/override', 10)
         self.create_subscription(Joy, '/joy', self._on_joy, 10)
-        self.create_subscription(State, '/mavros/state', self._on_state, STATE_QOS)
 
-        self.arm_cli = self.create_client(CommandBool, '/mavros/cmd/arming')
-        self.mode_cli = self.create_client(SetMode, '/mavros/set_mode')
+        # 以下全部要 mavros_msgs。沒有的話就只剩下發速度指令的能力。
+        self.rc_pub = None
+        self.arm_cli = None
+        self.mode_cli = None
+        if HAVE_MAVROS_MSGS:
+            self.rc_pub = self.create_publisher(OverrideRCIn, '/mavros/rc/override', 10)
+            self.create_subscription(State, '/mavros/state', self._on_state, STATE_QOS)
+            self.arm_cli = self.create_client(CommandBool, '/mavros/cmd/arming')
+            self.mode_cli = self.create_client(SetMode, '/mavros/set_mode')
+        else:
+            self.get_logger().warn(
+                'import 不到 mavros_msgs：解鎖/上鎖、切模式、rc_override 都停用，'
+                '只會發速度指令到 /mavros/setpoint_velocity/cmd_vel_unstamped。'
+                ' 要用那些功能請 apt install ros-humble-mavros-msgs。')
 
         period = 1.0 / max(1.0, p('publish_rate').value)
         self.create_timer(period, self._tick)
@@ -217,6 +240,9 @@ class JoyTeleopNode(Node):
     # ------------------------------------------------------------------ 服務
 
     def _request_arm(self, value):
+        if self.arm_cli is None:
+            self.get_logger().warn('沒有 mavros_msgs，無法解鎖/上鎖')
+            return
         if not self.arm_cli.service_is_ready():
             self.get_logger().warn('/mavros/cmd/arming 還沒起來')
             return
@@ -228,6 +254,9 @@ class JoyTeleopNode(Node):
                 f'{"解鎖" if value else "上鎖"} 結果: {f.result().success}'))
 
     def _request_mode(self, mode):
+        if self.mode_cli is None:
+            self.get_logger().warn('沒有 mavros_msgs，無法切模式')
+            return
         if not self.mode_cli.service_is_ready():
             self.get_logger().warn('/mavros/set_mode 還沒起來')
             return

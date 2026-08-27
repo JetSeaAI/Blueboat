@@ -133,16 +133,30 @@ PAD=ps5 JOY_DEV=/dev/input/js1 ./run.sh
 > source 進互動 shell 會直接把你的 terminal 換掉，看起來就是「視窗突然消失」。
 > 它是設計給 compose 當 `command` 用的。`run.sh` 不受影響，正常用就好。
 
-### 手動 build 的話要先裝依賴
+### 依賴
 
-`ros2-base` 映像沒有 `joy_linux` 和 `mavros_msgs`，`run.sh` 會自己補，
-但如果你是進容器手動跑（`./run.sh shell`），要先裝再 build：
+`ros2-base` 映像裡沒有這兩包，`run.sh` 會自己補：
+
+| 套件 | 需要嗎 |
+| --- | --- |
+| `ros-humble-joy-linux` | **必要**，沒有就讀不到手把 |
+| `ros-humble-mavros-msgs` | 選配，只影響解鎖/切模式/`rc_override` |
+
+**開船本身不需要 `mavros_msgs`。** 發速度指令只用到 `geometry_msgs/Twist`，
+和你手打 `ros2 topic pub` 是一樣的東西 —— mavros 跑在別的節點（`apm.launch`），
+我們只是往它的 topic 發。`mavros_msgs` 是給這些附加功能用的：
+
+- 解鎖 / 上鎖（`CommandBool` service）
+- 切模式（`SetMode` service）
+- 讀 `/mavros/state`
+- `output_mode: rc_override`
+
+import 不到的話節點會印警告然後**照常跑**，只是那些按鍵沒作用。
+要用的話進容器手動裝：
 
 ```bash
-apt-get update && apt-get install -y ros-humble-joy-linux ros-humble-mavros-msgs
+apt-get update && apt-get install -y ros-humble-mavros-msgs
 ```
-
-少裝 `mavros_msgs` 的症狀是 `ModuleNotFoundError: No module named 'mavros_msgs'`。
 
 容器裡 `/ros2_ws` 沒有掛出來，所以每次重啟都會重 build（ament_python 幾秒），
 apt 裝的套件同樣不會留。之後嫌慢可以把 `joy_linux` 烤進映像。
@@ -220,9 +234,8 @@ ros2 topic echo /mavros/state
 
 ## 常見狀況
 
-**`No module named 'mavros_msgs'`** — 映像裡沒有那包。
-`apt-get install -y ros-humble-mavros-msgs` 之後重新 `colcon build`。
-`run.sh` 走正常流程會自動裝。
+**`No module named 'mavros_msgs'`** — 現在不會再讓節點死掉了，只會印警告並停用
+解鎖/切模式。真的要那些功能就 `apt-get install -y ros-humble-mavros-msgs`。
 
 **踩 RT 沒反應** — 先 `ros2 topic echo /joy` 看 `axes[5]` 會不會變。
 有些 Xbox 手把（尤其藍牙模式）扳機的 index 不同，把實際的填回

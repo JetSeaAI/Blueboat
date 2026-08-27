@@ -36,7 +36,14 @@ ros2 pkg prefix joy_linux   >/dev/null 2>&1 || MISSING+=(ros-humble-joy-linux)
 ros2 pkg prefix mavros_msgs >/dev/null 2>&1 || MISSING+=(ros-humble-mavros-msgs)
 if [ ${#MISSING[@]} -gt 0 ]; then
   echo "▸ 安裝缺少的套件：${MISSING[*]}"
-  apt-get update && apt-get install -y "${MISSING[@]}"
+  # joy_linux 沒有就真的不能動；mavros_msgs 只影響解鎖/切模式，裝不起來
+  # （離線、apt 掛掉）還是讓它跑起來，節點會自己降級成只發速度指令。
+  if ! (apt-get update && apt-get install -y "${MISSING[@]}"); then
+    echo "⚠️  apt 安裝失敗" >&2
+    ros2 pkg prefix joy_linux >/dev/null 2>&1 \
+      || { echo "❌ 沒有 joy_linux 就讀不到手把，停止。" >&2; exit 1; }
+    echo "⚠️  joy_linux 有了，繼續跑（可能少了 mavros_msgs）" >&2
+  fi
 fi
 
 WS=/ros2_ws
