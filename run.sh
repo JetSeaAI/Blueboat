@@ -20,6 +20,7 @@
 #   ./run.sh disarm       上鎖
 #   ./run.sh fixsysid     把飛控的 SYSID_MYGCS 設成 mavros 的 system_id
 #                         （SID=1 可覆蓋）
+#   ./run.sh diag         一次收集 rc_override 卡關需要的所有資訊
 #   ./run.sh logs         看 log
 #   ./run.sh down         全部停掉
 #
@@ -240,6 +241,38 @@ print(v)")
         ros2 node list 2>/dev/null | grep -i param | sed "s/^/    /"
         echo "   或直接用 Mission Planner / QGC 查 SYSID_MYGCS)"
       fi'
+    ;;
+
+  diag)
+    # 一次收集判斷 rc_override 卡在哪需要的所有資訊
+    in_container '
+      echo "════ 1. 飛控狀態（armed / mode 要對）════"
+      timeout 3 ros2 topic echo --once /mavros/state || echo "  (沒訊息)"
+
+      echo
+      echo "════ 2. GCS sysid（兩邊必須一致）════"
+      echo "-- mavros system_id --"
+      ros2 param get /mavros system_id 2>/dev/null || echo "  (讀不到)"
+      ros2 service call /mavros/param/pull mavros_msgs/srv/ParamPull \
+        "{force_pull: true}" >/dev/null 2>&1 || true
+      for k in MAV_GCS_SYSID SYSID_MYGCS; do
+        for n in /mavros/param /mavros; do
+          out=$(ros2 param get "$n" "$k" 2>/dev/null) && echo "-- $k -- $out"
+        done
+      done
+
+      echo
+      echo "════ 3. 相關飛控參數 ════"
+      for k in FS_THR_ENABLE RC_OPTIONS RCMAP_THROTTLE RCMAP_ROLL \
+               SERVO1_FUNCTION SERVO3_FUNCTION RC3_MIN RC3_MAX RC3_TRIM; do
+        for n in /mavros/param /mavros; do
+          out=$(ros2 param get "$n" "$k" 2>/dev/null) && { echo "  $k = $out"; break; }
+        done
+      done
+
+      echo
+      echo "════ 4. 飛控的話（failsafe / 拒絕理由）════"
+      timeout 5 ros2 topic echo /mavros/statustext/recv || echo "  (5 秒內沒訊息)"'
     ;;
 
   logs)
