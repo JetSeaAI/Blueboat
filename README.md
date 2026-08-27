@@ -42,24 +42,26 @@ ros2 topic pub -r 10 /mavros/setpoint_velocity/cmd_vel_unstamped \
 
 ## 速度設定
 
-船目前限速 0.5 m/s，所以 config 是這樣配的：
+上限 6 節 = 6 × 0.5144 ≈ **3.09 m/s**。
 
 | 參數 | 值 | 意思 |
 | --- | --- | --- |
-| `max_linear_speed` | `0.5` | RT 踩到底的前進速度 |
-| `max_reverse_speed` | `0.3` | LT 踩到底的後退速度（倒車保守一點） |
+| `max_linear_speed` | `3.09` | RT 踩到底的前進速度（6 節） |
+| `max_reverse_speed` | `1.5` | LT 踩到底的後退速度（約 2.9 節，倒車保守一點） |
 | `max_angular_speed` | `0.5` | 搖桿打滿的角速度 rad/s |
 | `scale_low` | `0.5` | 慢速檔倍率（開機預設） |
 | `scale_high` | `1.0` | 全速檔倍率，按 LB / L1 切換 |
+| `invert_throttle` | `true` | 實測扳機方向是反的，翻過來 |
 
 實際輸出：
 
 | 操作 | 慢速檔（預設） | 全速檔 |
 | --- | --- | --- |
-| RT 踩到底 | `linear.x = +0.25` | `linear.x = +0.50` |
-| LT 踩到底 | `linear.x = -0.15` | `linear.x = -0.30` |
+| RT 踩到底 | `+1.55` m/s（3 節） | `+3.09` m/s（6 節） |
+| LT 踩到底 | `-0.75` m/s | `-1.50` m/s |
 
 要改上限直接調 `config/xbox.yaml` 的 `max_linear_speed`，不用動程式。
+節數換算：`m/s = 節 × 0.5144`。
 
 ## 安全機制
 
@@ -259,6 +261,7 @@ ros2 topic echo /mavros/state
 `trigger_full: 1.0`。
 
 **轉向反了** — 把 `invert_steer` 設 `true`。
+**前進後退反了** — 把 `invert_throttle` 設 `true`（目前已經是 `true`）。
 
 **推到底太快 / 太慢** — 調 `max_linear_speed`，或直接用慢速檔跑。
 

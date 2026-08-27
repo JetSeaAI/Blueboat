@@ -124,6 +124,7 @@ class JoyTeleopNode(Node):
         self.declare_parameter('button_mode_auto', 3)     # Y / Triangle
 
         self.declare_parameter('invert_steer', False)
+        self.declare_parameter('invert_throttle', False)
         self.declare_parameter('deadzone', 0.08)
         self.declare_parameter('trigger_deadzone', 0.05)
 
@@ -162,6 +163,7 @@ class JoyTeleopNode(Node):
             p('button_mode_auto').value: 'AUTO',
         }
         self.invert_steer = p('invert_steer').value
+        self.invert_throttle = p('invert_throttle').value
         self.deadzone = p('deadzone').value
         self.trigger_deadzone = p('trigger_deadzone').value
         self.output_mode = p('output_mode').value
@@ -326,6 +328,9 @@ class JoyTeleopNode(Node):
             reverse = 0.0
         # 兩邊同時踩就互相抵銷，不會突然衝出去
         throttle = forward - reverse
+        # 船裝反了或推進器極性相反時用這個翻，翻完再套前進/後退的限速
+        if self.invert_throttle:
+            throttle = -throttle
 
         scale = self.scale_high if self.turbo else self.scale_low
         return clamp(steer * scale, -1.0, 1.0), clamp(throttle * scale, -1.0, 1.0)

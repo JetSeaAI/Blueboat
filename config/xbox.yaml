@@ -19,6 +19,7 @@ bb_joy_teleop:
     button_mode_auto: 3      # Y
 
     invert_steer: false
+    invert_throttle: true      # 實測 RT/LT 方向是反的，翻過來
     deadzone: 0.08
     trigger_deadzone: 0.05
 
@@ -26,12 +27,12 @@ bb_joy_teleop:
     publish_rate: 10.0
     joy_timeout: 0.5
 
-    # 船目前限速 0.5 m/s
-    max_linear_speed: 0.5
-    max_reverse_speed: 0.3
+    # 上限 6 節 = 6 * 0.5144 = 3.09 m/s
+    max_linear_speed: 3.09
+    max_reverse_speed: 1.5     # 倒車保守一點，約 2.9 節
     max_angular_speed: 0.5
 
-    # 慢速檔 0.5 倍 -> 前進最高 0.25 m/s；按 LB 切全速才到 0.5
+    # 慢速檔 0.5 倍 -> 前進最高 1.55 m/s (3 節)；按 LB 切全速才到 3.09 (6 節)
     scale_low: 0.5
     scale_high: 1.0
 
