@@ -29,10 +29,15 @@ if [ "${RMW_IMPLEMENTATION}" = "rmw_zenoh_cpp" ]; then
   }
 fi
 
-# joy_linux 不在 ros-base 映像裡，第一次跑會自己裝
-ros2 pkg prefix joy_linux >/dev/null 2>&1 || {
-  apt-get update && apt-get install -y ros-humble-joy-linux
-}
+# joy_linux 和 mavros_msgs 都不在 ros-base 映像裡，第一次跑會自己裝。
+# 一次收集齊再裝，省掉重複的 apt-get update。
+MISSING=()
+ros2 pkg prefix joy_linux   >/dev/null 2>&1 || MISSING+=(ros-humble-joy-linux)
+ros2 pkg prefix mavros_msgs >/dev/null 2>&1 || MISSING+=(ros-humble-mavros-msgs)
+if [ ${#MISSING[@]} -gt 0 ]; then
+  echo "▸ 安裝缺少的套件：${MISSING[*]}"
+  apt-get update && apt-get install -y "${MISSING[@]}"
+fi
 
 WS=/ros2_ws
 mkdir -p "${WS}/src"

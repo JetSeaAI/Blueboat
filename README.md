@@ -133,6 +133,17 @@ PAD=ps5 JOY_DEV=/dev/input/js1 ./run.sh
 > source 進互動 shell 會直接把你的 terminal 換掉，看起來就是「視窗突然消失」。
 > 它是設計給 compose 當 `command` 用的。`run.sh` 不受影響，正常用就好。
 
+### 手動 build 的話要先裝依賴
+
+`ros2-base` 映像沒有 `joy_linux` 和 `mavros_msgs`，`run.sh` 會自己補，
+但如果你是進容器手動跑（`./run.sh shell`），要先裝再 build：
+
+```bash
+apt-get update && apt-get install -y ros-humble-joy-linux ros-humble-mavros-msgs
+```
+
+少裝 `mavros_msgs` 的症狀是 `ModuleNotFoundError: No module named 'mavros_msgs'`。
+
 容器裡 `/ros2_ws` 沒有掛出來，所以每次重啟都會重 build（ament_python 幾秒），
 apt 裝的套件同樣不會留。之後嫌慢可以把 `joy_linux` 烤進映像。
 
@@ -208,6 +219,10 @@ ros2 topic echo /mavros/state
 第 2 步在船架起來或螺旋槳淨空的狀況下做，確認數值符合上面那張表再下水。
 
 ## 常見狀況
+
+**`No module named 'mavros_msgs'`** — 映像裡沒有那包。
+`apt-get install -y ros-humble-mavros-msgs` 之後重新 `colcon build`。
+`run.sh` 走正常流程會自動裝。
 
 **踩 RT 沒反應** — 先 `ros2 topic echo /joy` 看 `axes[5]` 會不會變。
 有些 Xbox 手把（尤其藍牙模式）扳機的 index 不同，把實際的填回
