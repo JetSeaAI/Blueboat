@@ -29,11 +29,11 @@ from sensor_msgs.msg import Joy
 # topic 發東西。mavros_msgs 只有這些附加功能才用得到：解鎖/上鎖、切模式、
 # 讀 /mavros/state、rc_override。沒裝就退化成「只發速度指令」，照樣能開。
 try:
-    from mavros_msgs.msg import OverrideRCIn, State
+    from mavros_msgs.msg import OverrideRCIn, State, StatusText
     from mavros_msgs.srv import CommandBool, SetMode
     HAVE_MAVROS_MSGS = True
 except ImportError:
-    OverrideRCIn = State = CommandBool = SetMode = None
+    OverrideRCIn = State = StatusText = CommandBool = SetMode = None
     HAVE_MAVROS_MSGS = False
 
 # MAVROS state 是 best effort 發的，QoS 不合就收不到
@@ -205,6 +205,9 @@ class JoyTeleopNode(Node):
         self.last_joy_time = None
         self.state = State() if HAVE_MAVROS_MSGS else None
         self.turbo = False
+        # 切模式是非同步的：送出去之後要自己確認飛控真的換了
+        self.pending_mode = None
+        self.pending_deadline = None
 
         self.twist_pub = self.create_publisher(
             Twist, '/mavros/setpoint_velocity/cmd_vel_unstamped', 10)
@@ -217,6 +220,9 @@ class JoyTeleopNode(Node):
         if HAVE_MAVROS_MSGS:
             self.rc_pub = self.create_publisher(OverrideRCIn, '/mavros/rc/override', 10)
             self.create_subscription(State, '/mavros/state', self._on_state, STATE_QOS)
+            # 飛控拒絕切模式時，理由是從 STATUSTEXT 來的，撈進 log 才看得到
+            self.create_subscription(
+                StatusText, '/mavros/statustext/recv', self._on_statustext, STATE_QOS)
             self.arm_cli = self.create_client(CommandBool, '/mavros/cmd/arming')
             self.mode_cli = self.create_client(SetMode, '/mavros/set_mode')
         else:
@@ -237,6 +243,17 @@ class JoyTeleopNode(Node):
 
     def _on_state(self, msg):
         self.state = msg
+
+    def _on_statustext(self, msg):
+        """飛控自己講的話。切模式被拒絕的真正理由都在這裡。"""
+        text = msg.text.strip()
+        if not text:
+            return
+        # severity 依 MAV_SEVERITY：<=4 是 warning 以上
+        if msg.severity <= 4:
+            self.get_logger().warn(f'[飛控] {text}')
+        else:
+            self.get_logger().info(f'[飛控] {text}')
 
     def _on_joy(self, msg):
         if self.last_joy is None:
@@ -296,9 +313,35 @@ class JoyTeleopNode(Node):
         req.base_mode = 0
         req.custom_mode = mode
         future = self.mode_cli.call_async(req)
-        future.add_done_callback(
-            lambda f: self.get_logger().info(
-                f'切換到 {mode} 結果: {f.result().mode_sent}'))
+        future.add_done_callback(lambda f: self._on_mode_sent(mode, f))
+
+    def _on_mode_sent(self, mode, future):
+        # mode_sent 只表示「指令已送達飛控」，不表示飛控接受。
+        # 真正的確認是 /mavros/state 的 mode 有沒有變。
+        sent = future.result().mode_sent
+        if not sent:
+            self.get_logger().warn(f'切換到 {mode} 的指令沒送出去')
+            return
+        self.get_logger().info(f'已送出切換到 {mode} 的請求，等飛控確認…')
+        self.pending_mode = mode
+        self.pending_deadline = self.get_clock().now()
+
+    def _check_pending_mode(self):
+        if self.pending_mode is None:
+            return
+        current = getattr(self.state, 'mode', '') or ''
+        if current == self.pending_mode:
+            self.get_logger().info(f'飛控已切到 {self.pending_mode}')
+            self.pending_mode = None
+            return
+        waited = (self.get_clock().now() - self.pending_deadline).nanoseconds * 1e-9
+        if waited > 3.0:
+            self.get_logger().warn(
+                f'等了 3 秒，飛控還在 {current or "?"}，沒有切到 {self.pending_mode}。'
+                ' 飛控拒絕了切換 —— 上面的 [飛控] 訊息會說原因。'
+                ' GUIDED 需要有效的位置估計（GPS 3D fix + EKF 健康），'
+                ' MANUAL/HOLD 則不需要。')
+            self.pending_mode = None
 
     # ------------------------------------------------------------------ 主迴圈
 
@@ -362,6 +405,7 @@ class JoyTeleopNode(Node):
         return False
 
     def _tick(self):
+        self._check_pending_mode()
         steer, throttle = self._read_axes()
         self._log_state(steer, throttle)
         if not self._mode_matches():

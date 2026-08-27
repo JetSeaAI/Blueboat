@@ -156,6 +156,29 @@ ros2 run mavros mavparam set SYSID_MYGCS 1
 - `RC_OPTIONS` 有幾個 bit 會影響 override 行為
 - PWM 要落在該通道的 `RCn_MIN` / `RCn_MAX` 之內
 
+### 切不進 GUIDED（MANUAL / HOLD 都可以）
+
+`mode_sent=True` **只代表指令送到飛控了，不代表飛控接受**。
+節點現在會在送出後 3 秒回頭確認 `/mavros/state` 的 mode 有沒有真的變，
+沒變就警告，並把飛控的 STATUSTEXT 一起印在 log 裡 —— 拒絕的理由都在那。
+
+```bash
+./run.sh fc      # 飛控自己講的話
+./run.sh gps     # GPS fix / 衛星數 / EKF
+```
+
+**最可能的原因：GUIDED 需要有效的位置估計。**
+ArduRover 的 GUIDED 是位置/速度導引模式，要有 GPS 3D fix 而且 EKF 收斂；
+MANUAL 和 HOLD 不需要位置，所以照樣進得去 —— 症狀正好是「只有 GUIDED 不行」。
+
+依序確認：
+
+1. `./run.sh fc` 有沒有 `Mode change failed`、`EKF3 waiting for GPS`、
+   `PreArm: ...` 之類的訊息
+2. `./run.sh gps` 看 `status.status >= 0`（有 fix）、衛星數夠不夠（一般要 6 顆以上）
+3. 室內測試本來就進不去 GUIDED —— 沒有 GPS 訊號。要在室內驗證手把邏輯，
+   用 `MANUAL` + `rc_override`，或先接模擬器
+
 ### 模式守門
 
 節點現在會檢查飛控模式，不對就**不送指令**：

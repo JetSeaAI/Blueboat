@@ -7,6 +7,8 @@
 #   ./run.sh vel          看送出去的速度指令
 #   ./run.sh rcout        看送出去的 RC override
 #   ./run.sh rcin         看飛控實際收到的 RC（判斷 override 有沒有被接受）
+#   ./run.sh fc           看飛控的 STATUSTEXT（切模式被拒的理由在這）
+#   ./run.sh gps          看 GPS fix / 衛星數 / EKF（GUIDED 進不去先看這）
 #   ./run.sh logs         看 log
 #   ./run.sh down         全部停掉
 #
@@ -106,6 +108,25 @@ case "${1:-up}" in
   rcout)
     docker exec -it "${BB}" bash -ic \
       'source /opt/ros/humble/setup.bash && source /ros2_ws/install/setup.bash 2>/dev/null; ros2 topic echo /mavros/rc/override' \
+      || die "容器沒在跑？先開另一個 terminal 跑 ./run.sh"
+    ;;
+
+  fc)
+    # 飛控自己講的話：切模式被拒絕的理由、EKF/GPS 警告都在這
+    docker exec -it "${BB}" bash -ic \
+      'source /opt/ros/humble/setup.bash && source /ros2_ws/install/setup.bash 2>/dev/null; ros2 topic echo /mavros/statustext/recv' \
+      || die "容器沒在跑？先開另一個 terminal 跑 ./run.sh"
+    ;;
+
+  gps)
+    docker exec -it "${BB}" bash -ic \
+      'source /opt/ros/humble/setup.bash && source /ros2_ws/install/setup.bash 2>/dev/null;
+       echo "--- GPS fix（GUIDED 需要 status>=0 且 3D fix）---"
+       timeout 3 ros2 topic echo --once /mavros/global_position/raw/fix
+       echo "--- 衛星數 ---"
+       timeout 3 ros2 topic echo --once /mavros/global_position/raw/satellites
+       echo "--- EKF ---"
+       timeout 3 ros2 topic echo --once /mavros/estimator_status' \
       || die "容器沒在跑？先開另一個 terminal 跑 ./run.sh"
     ;;
 
